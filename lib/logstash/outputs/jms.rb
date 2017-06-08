@@ -8,14 +8,12 @@ require "logstash/namespace"
 # For more information about the Ruby Gem used, see <http://github.com/reidmorrison/jruby-jms>
 # Here is a config example :
 #  jms {
-#     include_header => false
-#     include_properties => false
-#     include_body => true
-#     use_jms_timestamp => false
-#     queue_name => "myqueue"
+#     delivery_mode => "persistent"
+#     pub_sub => true
+#     estination => "mytopic"
 #     yaml_file => "~/jms.yml"
 #     yaml_section => "mybroker"
-#   }
+#  }
 #
 #
 class LogStash::Outputs::Jms < LogStash::Outputs::Base
@@ -103,7 +101,12 @@ config :jndi_context, :validate => :hash
     @producer = @session.create_producer(@session.create_destination(destination_key => @destination))
 
     if !@delivery_mode.nil?
-      @producer.delivery_mode_sym = @deliver_mode
+        case @delivery_mode
+        when "persistent"
+                @producer.delivery_mode_sym = :persistent
+        when "non_persistent"
+                @producer.delivery_mode_sym = :non_persistent
+        end
     end
   end # def register
 
