@@ -104,7 +104,6 @@ class LogStash::Outputs::Jms < LogStash::Outputs::Base
     end
 
     @logger.debug("JMS Config being used", :context => @jms_config)
-    @connection = JMS::Connection.new(@jms_config)
 
     @destination_key = @pub_sub ? :topic_name : :queue_name
 
@@ -119,18 +118,44 @@ class LogStash::Outputs::Jms < LogStash::Outputs::Base
       close_proc:   nil,
       logger:       logger
     ) do
-      session                      = @connection.create_session()
-      # Turn on Java class persistence: https://github.com/jruby/jruby/wiki/Persistence
+      session = nil
+      begin
+        @connection = get_connection(@jms_config) unless @connection
+        session                      = @connection.create_session()
+      rescue => e
+        @logger.error("Failed to get session for JMS", :exception => e,
+                      :backtrace => e.backtrace)
+        @connection.close() if @connection
+        @connection = nil
+        sleep 10
+        retry
+      end
+    # Turn on Java class persistence: https://github.com/jruby/jruby/wiki/Persistence
       session.class.__persistent__ = true
       session
     end
 
+  end # def register
+
+  def get_connection(jms_config)
+    connection = nil
+    begin
+      connection = JMS::Connection.new(@jms_config)
+    rescue => e
+        @logger.error("Failed to get connection for JMS", :exception => e,
+                      :backtrace => e.backtrace)
+        connection.close() if connection
+        sleep 10
+        retry
+    end
+    
     # Handle connection failures
-    @connection.on_exception do |jms_exception|
+    connection.on_exception do |jms_exception|
       @logger.error "JMS Connection Exception has occurred: #{jms_exception.inspect}"
     end
 
-  end # def register
+    connection
+  end # def get_connection
 
   public
   def multi_receive_encoded(events_and_encoded)
@@ -156,6 +181,11 @@ class LogStash::Outputs::Jms < LogStash::Outputs::Base
           retry
         end
       end
+    rescue => e
+      @logger.error("Failed to get producer for JMS", :exception => e,
+                      :backtrace => e.backtrace)
+      sleep 10
+      retry
     ensure
       producer.close if producer
       @pool.checkin(session) if session
